@@ -1,3 +1,6 @@
+
+from pathlib import Path
+
 import pymupdf
 from docx import Document
 
@@ -5,50 +8,67 @@ from docx import Document
 def extract_text_from_pdf(file_path):
     """
     Extract text from a PDF resume.
+
+    Returns:
+        str: Extracted text from all PDF pages.
     """
+    text_parts = []
 
-    text = ""
+    with pymupdf.open(file_path) as document:
+        for page in document:
+            page_text = page.get_text()
+            if page_text.strip():
+                text_parts.append(page_text)
 
-    document = pymupdf.open(file_path)
-
-    for page in document:
-        text += page.get_text()
-
-    document.close()
-
-    return text
+    return "\n".join(text_parts).strip()
 
 
 def extract_text_from_docx(file_path):
     """
     Extract text from a DOCX resume.
+
+    Returns:
+        str: Extracted paragraph text.
     """
-
     document = Document(file_path)
-
-    text = []
+    text_parts = []
 
     for paragraph in document.paragraphs:
-        if paragraph.text.strip():
-            text.append(paragraph.text)
+        paragraph_text = paragraph.text.strip()
+        if paragraph_text:
+            text_parts.append(paragraph_text)
 
-    return "\n".join(text)
+    return "\n".join(text_parts).strip()
 
 
 def extract_resume_text(file_path):
     """
-    Detect the file type and extract resume text.
+    Detect the resume file type and extract its text.
+
+    Supports PDF and DOCX files.
     """
+    path = Path(file_path)
 
-    file_path = str(file_path).lower()
+    if not path.is_file():
+        raise FileNotFoundError(
+            f"Resume file not found: {path}"
+        )
 
-    if file_path.endswith(".pdf"):
-        return extract_text_from_pdf(file_path)
+    extension = path.suffix.lower()
 
-    elif file_path.endswith(".docx"):
-        return extract_text_from_docx(file_path)
+    if extension == ".pdf":
+        return extract_text_from_pdf(path)
+
+    elif extension == ".docx":
+        return extract_text_from_docx(path)
 
     else:
         raise ValueError(
             "Unsupported file type. Please upload a PDF or DOCX file."
         )
+
+
+if __name__ == "__main__":
+    print("Resume Parser module loaded successfully.")
+    print("Supported formats: PDF and DOCX")
+

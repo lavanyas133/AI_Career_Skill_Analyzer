@@ -1,33 +1,29 @@
+
 from sentence_transformers import SentenceTransformer, util
 
 
 class SemanticSkillMatcher:
+    """
+    Compare candidate skills with job requirements using
+    exact matching and semantic similarity.
+    """
 
-    def __init__(self):
-        # Pre-trained semantic NLP model
-        self.model = SentenceTransformer("all-MiniLM-L6-v2")
-
-    # --------------------------------------------------
-    # CALCULATE SEMANTIC SIMILARITY
-    # --------------------------------------------------
+    def __init__(self, model_name="all-MiniLM-L6-v2"):
+        # Load the pretrained model once and reuse it.
+        self.model = SentenceTransformer(model_name)
 
     def similarity(self, skill1, skill2):
+        """Return cosine similarity between two skills."""
+        if not skill1 or not skill2:
+            return 0.0
 
         embeddings = self.model.encode(
             [skill1, skill2],
             convert_to_tensor=True
         )
 
-        score = util.cos_sim(
-            embeddings[0],
-            embeddings[1]
-        )
-
+        score = util.cos_sim(embeddings[0], embeddings[1])
         return float(score.item())
-
-    # --------------------------------------------------
-    # HYBRID SKILL ANALYSIS
-    # --------------------------------------------------
 
     def analyze_skills(
         self,
@@ -35,63 +31,98 @@ class SemanticSkillMatcher:
         required_skills,
         semantic_threshold=0.65
     ):
+        """
+        Classify requirements as exact matches, related skills,
+        or unmatched requirements.
+
+        Semantic relations indicate similarity, not proof of
+        practical experience or qualification.
+        """
+        candidate_skills = list(candidate_skills or [])
+        required_skills = list(required_skills or [])
 
         exact_matches = []
         semantic_relations = []
         unmatched_skills = []
 
+        # Case-insensitive exact lookup.
+        candidate_lookup = {
+            str(skill).strip().casefold(): skill
+            for skill in candidate_skills
+            if str(skill).strip()
+        }
+
+        # Preserve the original candidate skill for reporting.
+        valid_candidates = [
+            str(skill).strip()
+            for skill in candidate_skills
+            if str(skill).strip()
+        ]
+
+        # Find requirements that need semantic comparison.
+        pending_requirements = []
+
         for required in required_skills:
+            required_text = str(required).strip()
 
-            # ------------------------------------------
-            # 1. EXACT MATCH
-            # ------------------------------------------
-
-            if required in candidate_skills:
-
-                exact_matches.append({
-                    "required_skill": required,
-                    "matched_skill": required,
-                    "similarity": 1.0
-                })
-
+            if not required_text:
                 continue
 
-            # ------------------------------------------
-            # 2. FIND BEST SEMANTIC MATCH
-            # ------------------------------------------
+            exact_key = required_text.casefold()
 
-            best_candidate = None
-            best_score = 0.0
-
-            for candidate in candidate_skills:
-
-                score = self.similarity(
-                    candidate,
-                    required
-                )
-
-                if score > best_score:
-                    best_score = score
-                    best_candidate = candidate
-
-            # ------------------------------------------
-            # 3. CLASSIFY SEMANTIC RELATION
-            # ------------------------------------------
-
-            if best_score >= semantic_threshold:
-
-                semantic_relations.append({
+            if exact_key in candidate_lookup:
+                exact_matches.append({
                     "required_skill": required,
-                    "related_skill": best_candidate,
-                    "similarity": round(best_score, 3)
+                    "matched_skill": candidate_lookup[exact_key],
+                    "similarity": 1.0
                 })
-
             else:
+                pending_requirements.append(required_text)
 
+        # Encode each skill only once for this analysis.
+        if valid_candidates and pending_requirements:
+            candidate_embeddings = self.model.encode(
+                valid_candidates,
+                convert_to_tensor=True
+            )
+
+            required_embeddings = self.model.encode(
+                pending_requirements,
+                convert_to_tensor=True
+            )
+
+            # Compare all candidate skills against all requirements.
+            similarity_matrix = util.cos_sim(
+                required_embeddings,
+                candidate_embeddings
+            )
+
+            for index, required in enumerate(pending_requirements):
+                scores = similarity_matrix[index]
+                best_index = int(scores.argmax().item())
+                best_score = float(scores[best_index].item())
+                best_candidate = valid_candidates[best_index]
+
+                if best_score >= semantic_threshold:
+                    semantic_relations.append({
+                        "required_skill": required,
+                        "related_skill": best_candidate,
+                        "similarity": round(best_score, 3)
+                    })
+                else:
+                    unmatched_skills.append({
+                        "required_skill": required,
+                        "best_candidate": best_candidate,
+                        "similarity": round(best_score, 3)
+                    })
+
+        else:
+            # No candidate skills available for comparison.
+            for required in pending_requirements:
                 unmatched_skills.append({
                     "required_skill": required,
-                    "best_candidate": best_candidate,
-                    "similarity": round(best_score, 3)
+                    "best_candidate": None,
+                    "similarity": 0.0
                 })
 
         return {
@@ -100,30 +131,52 @@ class SemanticSkillMatcher:
             "unmatched_skills": unmatched_skills
         }
 
-    # --------------------------------------------------
-    # BACKWARD-COMPATIBLE MATCH FUNCTION
-    # --------------------------------------------------
-
     def match_skills(
         self,
         candidate_skills,
         required_skills,
         threshold=0.55
     ):
+        """Backward-compatible function returning skill pairs."""
+        candidate_skills = list(candidate_skills or [])
+        required_skills = list(required_skills or [])
+
+        candidates = [
+            str(skill).strip()
+            for skill in candidate_skills
+            if str(skill).strip()
+        ]
+        requirements = [
+            str(skill).strip()
+            for skill in required_skills
+            if str(skill).strip()
+        ]
+
+        if not candidates or not requirements:
+            return []
+
+        # Batch encode instead of calling the model for every pair.
+        candidate_embeddings = self.model.encode(
+            candidates,
+            convert_to_tensor=True
+        )
+        required_embeddings = self.model.encode(
+            requirements,
+            convert_to_tensor=True
+        )
+
+        matrix = util.cos_sim(
+            candidate_embeddings,
+            required_embeddings
+        )
 
         matches = []
 
-        for candidate in candidate_skills:
-
-            for required in required_skills:
-
-                score = self.similarity(
-                    candidate,
-                    required
-                )
+        for i, candidate in enumerate(candidates):
+            for j, required in enumerate(requirements):
+                score = float(matrix[i][j].item())
 
                 if score >= threshold:
-
                     matches.append({
                         "candidate_skill": candidate,
                         "required_skill": required,
@@ -133,20 +186,10 @@ class SemanticSkillMatcher:
         return matches
 
 
-# ------------------------------------------------------
-# DIRECT TEST
-# ------------------------------------------------------
-
 if __name__ == "__main__":
-
     matcher = SemanticSkillMatcher()
 
-    candidate_skills = [
-        "Python",
-        "PyTorch",
-        "SQL"
-    ]
-
+    candidate_skills = ["Python", "PyTorch", "SQL"]
     required_skills = [
         "Python",
         "Machine Learning",
@@ -159,33 +202,28 @@ if __name__ == "__main__":
         required_skills
     )
 
-    print("\n==============================")
-    print("     HYBRID SEMANTIC TEST")
-    print("==============================")
+    print("\n=== HYBRID SEMANTIC SKILL ANALYSIS ===")
 
     print("\nEXACT MATCHES:")
-
     for item in analysis["exact_matches"]:
         print(
-            f"{item['matched_skill']} "
-            f"→ {item['required_skill']} "
-            f"= {item['similarity']}"
+            f"{item['matched_skill']} -> "
+            f"{item['required_skill']} "
+            f"(score: {item['similarity']})"
         )
 
     print("\nSEMANTIC RELATIONS:")
-
     for item in analysis["semantic_relations"]:
         print(
-            f"{item['related_skill']} "
-            f"→ {item['required_skill']} "
-            f"= {item['similarity']}"
+            f"{item['related_skill']} -> "
+            f"{item['required_skill']} "
+            f"(score: {item['similarity']})"
         )
 
     print("\nUNMATCHED / LOW SIMILARITY:")
-
     for item in analysis["unmatched_skills"]:
         print(
             f"{item['required_skill']} "
-            f"← best candidate: {item['best_candidate']} "
-            f"= {item['similarity']}"
+            f"<- best candidate: {item['best_candidate']} "
+            f"(score: {item['similarity']})"
         )
