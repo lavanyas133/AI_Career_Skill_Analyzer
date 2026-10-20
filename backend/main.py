@@ -4,6 +4,7 @@
 
 from fastapi import FastAPI, UploadFile, File, Form, Depends
 from sqlalchemy.orm import Session
+from fastapi import HTTPException
 
 import os
 import shutil
@@ -23,7 +24,7 @@ from backend.nlp.semantic_matcher import SemanticSkillMatcher
 # SKILL ENGINE
 # =========================================================
 
-from backend.engine.role_database import get_role_requirements
+from backend.engine.domain_database import get_all_role_requirements
 
 from backend.engine.skill_gap_analyzer import (
     analyze_skill_gap
@@ -117,9 +118,9 @@ def health_check():
 async def analyze_resume(
 
     file: UploadFile = File(...),
-
     role: str = Form(...),
-
+    domain: str = Form(...),
+    student_id: int | None = Form(None),
     db: Session = Depends(get_db)
 
 ):
@@ -166,9 +167,10 @@ async def analyze_resume(
     # GET TARGET ROLE REQUIREMENTS
     # -----------------------------------------------------
 
-    required_skills = get_role_requirements(
-        role
-    )
+    required_skills = get_all_role_requirements(
+    domain,
+    role
+)
     semantic_analysis = semantic_matcher.analyze_skills(
     student_skills,
     required_skills
@@ -211,15 +213,33 @@ async def analyze_resume(
     # CREATE STUDENT RECORD
     # =====================================================
 
-    student = Student(
-        target_role=role
-    )
 
-    db.add(student)
 
-    db.commit()
+    if student_id is not None:
+        student = db.query(Student).filter(
+            Student.id == student_id
+        ).first()
 
-    db.refresh(student)
+        if student is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Student not found."
+            )
+
+        student.target_role = role
+        db.commit()
+        db.refresh(student)
+
+    else:
+        student = Student(
+            target_role=role
+        )
+
+        db.add(student)
+        db.commit()
+        db.refresh(student)
+
+
 
 
     # =====================================================
@@ -353,39 +373,29 @@ async def analyze_resume(
 # GET ASSESSMENT QUESTIONS
 # =========================================================
 
-@app.get(
-    "/assessment/{skill}"
-)
-def get_skill_assessment(
-    skill: str
-):
 
-    questions = get_questions(
-        skill
-    )
-
+@app.get("/assessment/{skill}")
+def get_skill_assessment(skill: str):
+    questions = get_questions(skill)
 
     if not questions:
-
         return {
-
             "skill": skill,
-
             "questions": [],
-
-            "message":
-                "No assessment is currently "
-                "available for this skill."
-
+            "message": "No assessment is currently available for this skill."
         }
 
+    safe_questions = [
+        {
+            "question": question["question"],
+            "options": question["options"]
+        }
+        for question in questions
+    ]
 
     return {
-
         "skill": skill,
-
-        "questions": questions
-
+        "questions": safe_questions
     }
 
 
@@ -531,34 +541,27 @@ def submit_skill_assessment(
 # SKILL DEPENDENCY GRAPH
 # =========================================================
 
-@app.get(
-    "/skill-graph/{role}"
-)
-def get_skill_dependency_graph(
-    role: str
-):
 
-    required_skills = (
-        get_role_requirements(
+@app.get("/skill-graph/{role}")
+def get_skill_dependency_graph(
+    role: str,
+    domain: str = "Computer Science & AI"
+):
+    try:
+        required_skills = get_all_role_requirements(
+            domain,
             role
         )
-    )
-    graph_data = get_graph_data(
-        required_skills
-    )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
 
+    graph_data = get_graph_data(required_skills)
 
     return {
-
-        "career_role":
-            role,
-
-        "required_skills":
-            required_skills,
-
-        "graph":
-            graph_data
-
+        "career_role": role,
+        "domain": domain,
+        "required_skills": required_skills,
+        "graph": graph_data
     }
 
 
@@ -711,4 +714,35 @@ def update_learning_progress(
         "notes":
             progress.notes
 
+    }
+
+# =========================================================
+# GET ASSESSMENT HISTORY
+# =========================================================
+
+@app.get("/assessment-history/{student_id}")
+def get_assessment_history(
+    student_id: int,
+    db: Session = Depends(get_db)
+):
+    assessment_records = (
+        db.query(AssessmentResult)
+        .filter(AssessmentResult.student_id == student_id)
+        .order_by(AssessmentResult.id.desc())
+        .all()
+    )
+
+    return {
+        "student_id": student_id,
+        "assessment_history": [
+            {
+                "id": record.id,
+                "skill": record.skill,
+                "score": record.score,
+                "correct_answers": record.correct_answers,
+                "total_questions": record.total_questions,
+                "proficiency": record.proficiency
+            }
+            for record in assessment_records
+        ]
     }

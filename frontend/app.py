@@ -4,8 +4,9 @@ import networkx as nx
 import plotly.graph_objects as go
 
 from backend.engine.domain_database import (
-    get_domains,
-    get_roles
+    get_all_domains,
+    get_all_roles,
+    get_all_role_requirements
 )
 
 
@@ -118,14 +119,14 @@ with col1:
 with col2:
 
     domain = st.selectbox(
-        "🌐 Select your career domain",
-        get_domains()
-    )
+    "🌐 Select your career domain",
+    get_all_domains()
+)
 
-    role = st.selectbox(
-        "🎯 Select your target career role",
-        get_roles(domain)
-    )
+role = st.selectbox(
+    "🎯 Select your target career role",
+    get_all_roles(domain)
+)
 
 
 st.write("")
@@ -163,8 +164,12 @@ if st.button(
                 }
 
                 data = {
-                    "role": role
-                }
+                    "role": role,
+                    "domain": domain
+            }
+
+                if st.session_state.student_id is not None:
+                    data["student_id"] = st.session_state.student_id
 
                 response = requests.post(
                     f"{BACKEND_URL}/analyze",
@@ -402,30 +407,7 @@ if st.session_state.analysis_result is not None:
     # SEMANTICALLY RELATED SKILLS
     # -----------------------------------------------------
 
-    st.subheader(
-        "🔗 Semantically Related Skills"
-    )
 
-    if skills_semantically_related:
-
-        st.write(
-            "The AI identified skills in your resume "
-            "that are semantically related to required skills."
-        )
-
-        for item in skills_semantically_related:
-
-            st.info(
-                f"≈ {item['related_skill']} "
-                f"→ {item['required_skill']} "
-                f"(Similarity: {item['similarity']:.3f})"
-            )
-
-    else:
-
-        st.info(
-            "No strong semantic relationships detected."
-        )
 
 
     st.divider()
@@ -968,26 +950,23 @@ if st.session_state.analysis_result is not None:
                 f"### Question {index + 1}"
             )
 
-
             st.write(
                 question["question"]
             )
 
-
             selected_answer = st.radio(
                 "Select your answer:",
                 question["options"],
+                index=None,
                 key=(
                     f"{assessment_skill}_"
                     f"question_{index}"
                 )
             )
 
-
             user_answers.append(
                 selected_answer
             )
-
 
         # -------------------------------------------------
         # SUBMIT ASSESSMENT
@@ -1201,3 +1180,263 @@ if st.session_state.analysis_result is not None:
                 st.write(
                     f"⚠️ {skill}"
                 )
+
+
+# =========================================================
+# STUDENT PROGRESS DASHBOARD
+# =========================================================
+
+if st.session_state.student_id is not None:
+
+    st.divider()
+    st.header("📈 Student Progress Dashboard")
+
+    student_id = st.session_state.student_id
+
+
+    try:
+        progress_response = requests.get(
+            f"{BACKEND_URL}/progress/{student_id}",
+            timeout=10
+        )
+
+        history_response = requests.get(
+            f"{BACKEND_URL}/assessment-history/{student_id}",
+            timeout=10
+        )
+
+        if progress_response.status_code == 200:
+            progress_records = progress_response.json().get(
+                "progress", []
+            )
+        else:
+            progress_records = []
+            st.warning("Unable to load learning progress.")
+
+        if history_response.status_code == 200:
+            assessment_records = history_response.json().get(
+                "assessment_history", []
+            )
+        else:
+            assessment_records = []
+            st.warning("Unable to load assessment history.")
+
+        # Learning progress metrics
+        st.subheader("📚 Learning Progress")
+
+        total_skills = len(progress_records)
+        completed_skills = sum(
+            1 for item in progress_records
+            if item.get("status", "").lower() == "completed"
+        )
+
+        average_progress = (
+            sum(
+                float(item.get("progress_percentage") or 0)
+                for item in progress_records
+            ) / total_skills
+            if total_skills else 0
+        )
+
+        col1, col2, col3 = st.columns(3)
+
+        col1.metric("Tracked Skills", total_skills)
+        col2.metric("Completed Skills", completed_skills)
+        col3.metric("Average Progress", f"{average_progress:.0f}%")
+
+        if progress_records:
+            progress_df = __import__("pandas").DataFrame(
+                progress_records
+            )
+
+            st.dataframe(
+                progress_df[
+                    [
+                        "skill",
+                        "status",
+                        "progress_percentage",
+                        "notes"
+                    ]
+                ],
+                use_container_width=True,
+                hide_index=True
+            )
+
+            st.subheader("Progress by Skill")
+
+            progress_chart = go.Figure(
+                data=[
+                    go.Bar(
+                        x=progress_df["skill"],
+                        y=progress_df["progress_percentage"],
+                        text=progress_df["progress_percentage"],
+                        textposition="auto"
+                    )
+                ]
+            )
+
+            progress_chart.update_layout(
+                xaxis_title="Skill",
+                yaxis_title="Progress (%)",
+                yaxis_range=[0, 100]
+            )
+
+            st.plotly_chart(
+                progress_chart,
+                use_container_width=True
+            )
+        else:
+            st.info(
+                "No learning progress saved yet. "
+                "Analyze a resume or complete an assessment "
+                "to start tracking your progress."
+            )
+
+        # Manually update learning progress
+        if progress_records:
+            st.subheader("✏️ Update Learning Progress")
+
+            progress_by_skill = {
+                item["skill"]: item
+                for item in progress_records
+            }
+
+            selected_skill = st.selectbox(
+                "Choose a skill",
+                options=list(progress_by_skill.keys()),
+                key="progress_edit_skill"
+            )
+
+            selected_record = progress_by_skill[selected_skill]
+
+            status_options = [
+                "Not Started",
+                "In Progress",
+                "Completed"
+            ]
+
+            current_status = selected_record.get(
+                "status", "Not Started"
+            )
+
+            if current_status not in status_options:
+                current_status = "In Progress"
+
+            updated_status = st.selectbox(
+                "Learning status",
+                status_options,
+                index=status_options.index(current_status),
+                key=f"progress_status_{selected_skill}"
+            )
+
+            updated_percentage = st.slider(
+                "Progress percentage",
+                min_value=0,
+                max_value=100,
+                value=max(
+                    0,
+                    min(
+                        100,
+                        int(
+                            selected_record.get(
+                                "progress_percentage", 0
+                            ) or 0
+                        )
+                    )
+                ),
+                key=f"progress_percent_{selected_skill}"
+            )
+
+            updated_notes = st.text_area(
+                "Notes (optional)",
+                value=selected_record.get("notes") or "",
+                key=f"progress_notes_{selected_skill}"
+            )
+
+            if st.button("Save Progress"):
+                try:
+                    update_response = requests.put(
+                        f"{BACKEND_URL}/progress/"
+                        f"{student_id}/{selected_skill}",
+                        params={
+                            "status": updated_status,
+                            "progress_percentage": updated_percentage,
+                            "notes": updated_notes
+                        },
+                        timeout=10
+                    )
+
+                    if update_response.status_code == 200:
+                        st.success("Learning progress saved!")
+                        st.rerun()
+                    else:
+                        st.error(
+                            "Could not save progress: "
+                            f"{update_response.text}"
+                        )
+
+                except requests.exceptions.RequestException as error:
+                    st.error(
+                        f"Unable to save progress: {error}"
+                    )
+
+        # Assessment history
+        # Assessment history
+        st.subheader("🧪 Assessment History")
+
+        if assessment_records:
+            history_df = __import__("pandas").DataFrame(
+                assessment_records
+            )
+
+            st.dataframe(
+                history_df[
+                    [
+                        "skill",
+                        "score",
+                        "correct_answers",
+                        "total_questions",
+                        "proficiency"
+                    ]
+                ],
+                use_container_width=True,
+                hide_index=True
+            )
+
+            st.subheader("Assessment Scores")
+
+            score_chart = go.Figure(
+                data=[
+                    go.Bar(
+                        x=history_df["skill"],
+                        y=history_df["score"],
+                        text=history_df["score"],
+                        textposition="auto"
+                    )
+                ]
+            )
+
+            score_chart.update_layout(
+                xaxis_title="Skill",
+                yaxis_title="Score (%)",
+                yaxis_range=[0, 100]
+            )
+
+            st.plotly_chart(
+                score_chart,
+                use_container_width=True
+            )
+        else:
+            st.info(
+                "No assessment history yet. Complete and submit "
+                "a skill assessment to see your saved results here."
+            )
+
+    except requests.exceptions.ConnectionError:
+        st.error(
+            "Cannot connect to the backend. "
+            "Make sure FastAPI is running."
+        )
+
+    except requests.exceptions.RequestException as error:
+        st.error(f"Unable to load dashboard data: {error}")

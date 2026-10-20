@@ -177,3 +177,49 @@ def get_domain_role_requirements(domain, role):
         )
 
     return DOMAIN_DATABASE[domain][role]
+
+# =========================================================
+# O*NET REAL OCCUPATION DATABASE
+# =========================================================
+
+from backend.data.onet_importer import load_onet_database
+
+ONET_DATABASE, ONET_METADATA = load_onet_database()
+
+
+def get_all_domains():
+    """Return existing domains plus domains from O*NET."""
+    return sorted(set(DOMAIN_DATABASE) | set(ONET_DATABASE))
+
+
+def get_all_roles(domain):
+    """Return existing and O*NET roles for a domain."""
+    existing_roles = DOMAIN_DATABASE.get(domain, {})
+    onet_roles = ONET_DATABASE.get(domain, {})
+
+    return sorted(set(existing_roles) | set(onet_roles))
+
+
+
+def get_all_role_requirements(domain, role):
+    """Return role requirements from the selected domain."""
+    existing_roles = DOMAIN_DATABASE.get(domain, {})
+    onet_roles = ONET_DATABASE.get(domain, {})
+
+    if role in existing_roles:
+        return existing_roles[role]
+
+    if role in onet_roles:
+        return onet_roles[role]
+
+    # Fallback: find the role in another domain if the exact
+    # domain selection differs between the static and O*NET databases.
+    for roles in DOMAIN_DATABASE.values():
+        if role in roles:
+            return roles[role]
+
+    for roles in ONET_DATABASE.values():
+        if role in roles:
+            return roles[role]
+
+    raise ValueError(f"Unknown role '{role}' in domain '{domain}'")

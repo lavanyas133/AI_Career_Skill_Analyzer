@@ -103,6 +103,83 @@ SKILL_DATABASE = {
     "Wireframing": ["wireframing", "wireframes"],
     "Prototyping": ["prototyping", "prototype"],
     "Usability Testing": ["usability testing"],
+
+        # O*NET workplace skills
+    "Reading Comprehension": [
+        "reading comprehension",
+        "reviewed legal documents",
+        "reviewing legal documents",
+        "interpreting statutes"
+    ],
+    "Active Listening": [
+        "active listening",
+        "listened to parties",
+        "listening to clients"
+    ],
+    "Critical Thinking": [
+        "critical thinking",
+        "evaluated evidence",
+        "evaluating evidence",
+        "rendered decisions",
+        "legal reasoning"
+    ],
+    "Writing": [
+        "writing",
+        "prepared research notes",
+        "prepared legal documents",
+        "drafting legal documents"
+    ],
+    "Speaking": [
+        "speaking",
+        "oral communication",
+        "communicated with attorneys"
+    ],
+    "Active Learning": [
+        "active learning",
+        "professional development",
+        "facilitated training sessions"
+    ],
+    "Monitoring": [
+        "monitoring",
+        "maintained accurate records",
+        "compliance with regulatory requirements"
+    ],
+    "Learning Strategies": [
+        "learning strategies",
+        "training sessions",
+        "staff training"
+    ],
+        # Legal and law
+    "Legal Research": [
+        "legal research", "case law research", "statutory research"
+    ],
+    "Legal Analysis": [
+        "legal analysis", "case analysis", "legal reasoning"
+    ],
+    "Legal Drafting": [
+        "legal drafting", "drafting legal documents"
+    ],
+    "Case Management": [
+        "case management", "case file management"
+    ],
+    "Contract Review": [
+        "contract review", "reviewing contracts"
+    ],
+    "Statutory Interpretation": [
+        "statutory interpretation", "interpretation of statutes"
+    ],
+    "Evidence Evaluation": [
+        "evaluating evidence", "evidence evaluation", "reviewed evidence"
+    ],
+    "Administrative Law": [
+        "administrative law", "administrative appeals"
+    ],
+    "Legal Document Review": [
+        "legal document review", "reviewed legal documents"
+    ],
+    "Ethical Judgment": [
+        "ethical judgment", "ethical judgement"
+    ],
 }
 
 
